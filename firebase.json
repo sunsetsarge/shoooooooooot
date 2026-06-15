@@ -5,6 +5,8 @@
       "firebase.json",
       ".firebaserc",
       "**/.*",
+      ".git/**",
+      ".firebase/**",
       "**/*.ps1",
       "**/node_modules/**",
       "atlas.png",

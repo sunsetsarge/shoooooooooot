@@ -1,0 +1,28 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "**/.*",
+      "**/*.ps1",
+      "**/node_modules/**",
+      "atlas.png",
+      "README.md",
+      "LICENSE",
+      "tools/**"
+    ],
+    "rewrites": [
+      { "source": "/", "destination": "/real-war-shooter.html" },
+      { "source": "/play", "destination": "/real-war-shooter.html" }
+    ],
+    "headers": [
+      {
+        "source": "real-war-shooter.html",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=300, must-revalidate" }
+        ]
+      }
+    ]
+  }
+}

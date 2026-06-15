@@ -515,29 +515,17 @@ const CAM={
   playerY(){ return Renderer.LH-165; },
   topDownTopY(){ return Renderer.LH*0.08; }, // where z=zMax appears in top-down view
   project(lx,z){
-    /* Pseudo-3D perspective projection ONLY in Bridge Carry mode.
-       All other modes use a side-scrolling orthographic view. */
-    if(Modes.current==='bridge'){
-      const s=this.near/(this.near+Math.max(z,-this.near*.5));
-      return { x:240+lx*s,
-               y:this.playerY()-(this.playerY()-this.horizonY())*(1-s),
-               s };
-    }
-    /* Top-down orthographic: lx → screen X, z → screen Y.
-       Player squad (z=0) anchors at ~65% down the canvas; enemies (z≈zMax)
-       appear near the top (~10%). lx (±ROAD.half) spreads units horizontally
-       around the road centre at x=240. */
-    const LX_SCALE = 200 / ROAD.half;
-    const PLAYER_BASE_Y = Renderer.LH * 0.65;
-    const TOP_Y = Renderer.LH * 0.10;
-    const sx = 240 + lx * LX_SCALE;
-    const sy = PLAYER_BASE_Y - (z / this.zMax) * (PLAYER_BASE_Y - TOP_Y);
-    return { x:sx, y:sy, s:1 };
+    /* Pseudo-3D perspective projection — player base at bottom, horizon at top.
+       Applies to ALL game modes (bridge, lane, etc.).
+       z=0 = player base (bottom), z=zMax = horizon (top).
+       Entities close to the player appear large and low; enemies spawn near
+       the horizon (high z) and march down toward z=0. */
+    const s=this.near/(this.near+Math.max(z,-this.near*.5));
+    return { x:240+lx*s,
+             y:this.playerY()-(this.playerY()-this.horizonY())*(1-s),
+             s };
   },
-  fade(z){
-    if(Modes.current!=='bridge') return 1; // no horizon fade-in in top-down
-    return clamp((this.zMax-z)/130,0,1);
-  }
+  fade(z){ return clamp((this.zMax-z)/130,0,1); }
 };
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• INPUT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    Touch/mouse uses RELATIVE drag: the squad moves by the same amount the
@@ -1098,9 +1086,7 @@ const Squad={
   },
   draw(g){
     const n=Math.min(Combat.shooterCount(),28);
-    let px,py;
-    if(Modes.current==='bridge'){ px=240+P.lx; py=CAM.playerY(); }
-    else{ const sp=CAM.project(P.lx,0); px=sp.x; py=sp.y; }
+    const px=240+P.lx, py=CAM.playerY(); // z=0 → playerY() (bottom of screen)
     const wob=Math.sin(P.time*9)*1.4;
     const shadows=Settings.budget().shadows;
     for(let i=n-1;i>=0;i--){
@@ -1151,8 +1137,8 @@ const Draw={
     for(let i=0;i<26;i++) this.sparkles.push({x:rand(0,480),t:rand(0,3)});
   },
   background(g,dt){
-    /* Dispatch: Bridge Carry = pseudo-3D perspective road; all other modes = top-down. */
-    if(Modes.current!=='bridge'){ this._bgTopDown(g,dt); return; }
+    /* Pseudo-3D perspective background for all modes.
+       Bridge Carry uses the same road/sky/sea view with bridge-specific graphics. */
     if(!this.clouds) this.initSky();
     const LH=Renderer.LH, hy=CAM.horizonY(), py=CAM.playerY();
     this.scroll=(this.scroll+this.roadSpd*dt)%70;

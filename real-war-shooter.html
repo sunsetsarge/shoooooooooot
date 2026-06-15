@@ -582,6 +582,7 @@ function newPlayer(mode){
     mods:{power:0,rapid:0,spread:0,fire:0,poison:0,expl:0,unique:0},
     fireAcc:0, shotCounter:0, spinup:0, shield:0,
     score:0, coins:0, kills:0, time:0, scoreMult:1, scoreMultT:0,
+    armyIdleT:0, armyCoinsEarned:0, armyCoinsCapped:false, _armyIdleWarned:false,
     dmgDealt:0, dpsWindow:0, dpsTimer:0, dps:0,
     hero:{lvl:1, xp:0, xpNeed:9, dmgMult:1, rateMult:1, multishot:0, pierce:0,
           crit:0, regen:0, coinMult:1}
@@ -637,8 +638,9 @@ const Modes={
     army:{
       label:()=>'Army Builder',
       init(){ P.hp=1; },
-      diff(){ return (1+P.time*.026+P.troops*.025)*curDiff().diffMult; },
-      spawnInt(){ return Math.max(.22, .82-P.time*.012)*curDiff().spawnMult; },
+      // Steepened: difficulty ramps ~46% faster, spawn interval compresses faster too
+      diff(){ return (1+P.time*.038+P.troops*.032)*curDiff().diffMult; },
+      spawnInt(){ return Math.max(.18, .76-P.time*.020)*curDiff().spawnMult; },
       tierCap(){ return clamp(1+Math.floor(P.time/38), 1, Defs.WEAPON_ORDER.length); },
       update(dt){ Modes.progress=(P.time%60)/60;
         if(Math.random()<dt*.14 && gates.length<2) Spawner.spawnGatePair(); },
@@ -962,7 +964,25 @@ const Combat={
     }
   },
   earnCoins(n,lx,z){
-    const total=Math.max(1,Math.round(n*Perks.coinMult()*(P.mode==='hero'?P.hero.coinMult:1)));
+    /* ── Army Builder anti-farming guards ── */
+    const ARMY_SESSION_CAP=500; // max coins bankable per Army Builder session
+    const idleMult=(P.mode==='army' && P.armyIdleT>8) ? 0.15 : 1;
+    const total=Math.max(1,Math.round(n*Perks.coinMult()*(P.mode==='hero'?P.hero.coinMult:1)*idleMult));
+    if(P.mode==='army'){
+      if(P.armyCoinsEarned>=ARMY_SESSION_CAP) return; // cap already hit, earn nothing
+      const capped=Math.min(total, ARMY_SESSION_CAP-P.armyCoinsEarned);
+      P.coins+=capped; P.armyCoinsEarned+=capped;
+      Audio2.play('coin');
+      if(lx!==undefined){
+        const label=idleMult<1 ? '+'+capped+'🪙💤' : '+'+capped+'🪙';
+        FX.textW(lx,z,label,'#ffc83d',13);
+      }
+      if(P.armyCoinsEarned>=ARMY_SESSION_CAP && !P.armyCoinsCapped){
+        P.armyCoinsCapped=true;
+        toast('🏦 Army Builder session cap (500🪙) reached — keep fighting for score!',3000);
+      }
+      return;
+    }
     P.coins+=total;
     Audio2.play('coin');
     if(lx!==undefined) FX.textW(lx,z,'+'+total+'🪙','#ffc83d',13);
@@ -1007,7 +1027,7 @@ const Crates={
         else Combat.earnCoins(8,c.lx,c.z);
         break;
       case 'heal':
-        if(P.mode==='army'){ P.troops=Math.min(99,P.troops+2); toast('🪖 +2 Troops'); }
+        if(P.mode==='army'){ P.troops=Math.min(999,P.troops+2); toast('🪖 +2 Troops'); }
         else if(P.mode==='bridge'){ P.troops=Math.min(20,P.troops+1); P.bridgeHp=Math.min(P.bridgeHpMax,P.bridgeHp+15); toast('🪖 +1 Carrier · 🌉 +15'); }
         else { P.hp=Math.min(P.maxHp,P.hp+P.maxHp*.35); toast('❤️ Healed'); }
         break;
@@ -1658,6 +1678,15 @@ const Game={
       dt*=.45;
     }
     P.time+=dt;
+    // Army Builder idle detection: no drag input for >8s cuts coin earnings
+    if(P.mode==='army'){
+      if(Input.down){ P.armyIdleT=0; P._armyIdleWarned=false; }
+      else P.armyIdleT+=dt;
+      if(P.armyIdleT>8 && !P._armyIdleWarned){
+        P._armyIdleWarned=true;
+        toast('😴 Idle detected — coin drops reduced to 15%!',2200);
+      }
+    }
     if(P.scoreMultT>0){ P.scoreMultT-=dt; if(P.scoreMultT<=0){ P.scoreMult=1; HUD.refreshChips(); } }
     if(P.shield>0){ P.shield-=dt; if(P.shield<=0) HUD.refreshChips(); }
     P.score+=dt*2*P.scoreMult;
@@ -1877,7 +1906,7 @@ const Game={
       gt.z-=gt.spd*dt;
       if(gt.z<=14){
         if(P.lx>=gt.l0&&P.lx<=gt.l1){
-          P.troops=clamp(P.troops+gt.val,0,99);
+          P.troops=clamp(P.troops+gt.val,0,999);
           FX.textW(P.lx,40,(gt.val>0?'+':'')+gt.val+' 🪖',gt.val>0?'#7db8ff':'#ff6060',18);
           Audio2.play(gt.val>0?'pickup':'hurt');
           if(P.troops<=0){ this.end(false); return; }

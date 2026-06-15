@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>REAL WAR — Not Fake</title>
+<title>BRIDGE 5</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
- REAL WAR (Not Fake) — single-file pseudo-3D lane shooter
+ BRIDGE 5 — single-file pseudo-3D lane shooter
 ═══════════════════════════════════════════════════════════════════════════
  ENGINE ARCHITECTURE (extension points for future work):
 
@@ -116,6 +116,13 @@
   .card .nm{ font-weight:800; font-size:12.5px; margin:6px 0 4px; color:#9fdcff; }
   .card .ds{ font-size:10.5px; opacity:.85; line-height:1.3; }
   .modeBest{ font-size:11px; opacity:.8; font-weight:600; }
+  .diffRow{ display:flex; gap:8px; justify-content:center; margin:6px 0 14px; }
+  .diffChip{ pointer-events:auto; padding:8px 14px; background:rgba(0,0,0,.45); color:#fff;
+             border:2px solid rgba(255,255,255,.15); border-radius:24px;
+             font-size:13px; font-weight:800; cursor:pointer; letter-spacing:.5px;
+             transition:transform .12s, border-color .12s, background .12s; }
+  .diffChip.on{ background:rgba(255,255,255,.16); transform:scale(1.06); }
+  .diffLabel{ font-size:11px; color:#9fdcff; letter-spacing:2px; font-weight:700; opacity:.7; }
   #toast{ position:fixed; left:50%; top:18%; transform:translateX(-50%); background:rgba(8,20,30,.92);
           border:1px solid #3a86b8; color:#fff; font-weight:800; padding:10px 22px; border-radius:30px;
           z-index:50; display:none; font-size:15px; text-align:center; }
@@ -143,7 +150,7 @@
 <div id="rotateMsg">
   <div class="icon">ðŸ“±</div>
   <div class="t1">ROTATE YOUR DEVICE</div>
-  <div class="t2">REAL WAR is played in portrait orientation.<br>Turn your phone vertical to start the war.</div>
+  <div class="t2">BRIDGE 5 is played in portrait orientation.<br>Turn your phone vertical to start the war.</div>
 </div>
 
 <!-- ════════ HUD ════════ -->
@@ -163,9 +170,11 @@
 
 <!-- ════════ MAIN MENU ════════ -->
 <div class="screen open" id="scrMenu">
-  <h1 class="logo">REAL<span>WAR</span></h1>
-  <div class="tagline">NOT FAKE</div>
+  <h1 class="logo">BRIDGE<span>5</span></h1>
+  <div class="tagline">DEFEND THE BRIDGE</div>
   <div class="coinsBig">🪙 <span id="menuCoins">0</span></div>
+  <div class="diffLabel">DIFFICULTY</div>
+  <div class="diffRow" id="diffRow"></div>
   <button class="btn" data-mode="stage">⚔️ Stage Mode <small class="modeBest" id="bestStage"></small></button>
   <button class="btn" data-mode="endless">♾️ Endless Mode <small class="modeBest" id="bestEndless"></small></button>
   <button class="btn" data-mode="army">🪖 Army Builder <small class="modeBest" id="bestArmy"></small></button>
@@ -257,7 +266,7 @@ function toast(msg,ms=1400){
 const Save={
   KEY:'realwar_save_v1',
   data:{ coins:0, perks:{}, perkOn:{}, mults:{}, multOn:{}, stageReached:1,
-         best:{stage:0,endless:0,army:0,hero:0}, settings:null, seenHint:false },
+         best:{stage:0,endless:0,army:0,hero:0}, settings:null, seenHint:false, difficulty:'normal' },
   load(){
     try{ const raw=localStorage.getItem(this.KEY);
          if(raw) Object.assign(this.data, JSON.parse(raw)); }catch(e){}
@@ -407,6 +416,13 @@ Defs.CRATES=[
   {kind:'mult',   w:3,  ico:'✖️'}
 ];
 
+Defs.DIFFICULTIES={
+  easy:   {label:'Easy',   ico:'🟢', diffMult:0.62, spawnMult:1.50, hpStart:1.35, troopBonus:3, color:'#5dde6a'},
+  normal: {label:'Normal', ico:'🟡', diffMult:1.00, spawnMult:1.00, hpStart:1.00, troopBonus:0, color:'#ffc83d'},
+  hard:   {label:'Hard',   ico:'🔴', diffMult:1.30, spawnMult:0.82, hpStart:0.85, troopBonus:-1,color:'#ff5252'}
+};
+function curDiff(){ return Defs.DIFFICULTIES[Save.data.difficulty]||Defs.DIFFICULTIES.normal; }
+
 Defs.PERKS=[
   {id:'vest',   name:'Kevlar Vest',   ico:'🦺', max:4, desc:'+25 max health per level',        cost:l=>150*Math.pow(2,l)},
   {id:'rounds', name:'Hardened Rounds',ico:'🔩',max:5, desc:'+10% damage per level',           cost:l=>200*Math.pow(2,l)},
@@ -535,8 +551,8 @@ function newPlayer(mode){
   const startIdx=clamp(arsenal,0,3);
   return {
     mode, lx:0, speed:430,
-    maxHp:100+25*Perks.active('vest'), hp:0,
-    troops: mode==='army' ? 5+2*Perks.active('recruit') : (mode==='hero'?1:4),
+    maxHp:Math.round((100+25*Perks.active('vest'))*curDiff().hpStart), hp:0,
+    troops: mode==='army' ? Math.max(1, 5+2*Perks.active('recruit')+curDiff().troopBonus) : (mode==='hero'?1:4),
     weaponIdx:startIdx, weapon:Defs.WEAPON_ORDER[startIdx],
     mods:{power:0,rapid:0,spread:0,fire:0,poison:0,expl:0,unique:0},
     fireAcc:0, shotCounter:0, spinup:0, shield:0,
@@ -556,8 +572,8 @@ const Modes={
       init(){ Modes.stage=Game.pendingStage||Save.data.stageReached;
               Modes.killGoal=30+Modes.stage*16; Modes.bossSpawned=false;
               P.hp=P.maxHp; },
-      diff(){ return 1.05+(Modes.stage-1)*.42+Math.min(.5,P.time*.004); },
-      spawnInt(){ return Math.max(.22, .98-Modes.stage*.06); },
+      diff(){ return (1.05+(Modes.stage-1)*.42+Math.min(.5,P.time*.004))*curDiff().diffMult; },
+      spawnInt(){ return Math.max(.22, .98-Modes.stage*.06)*curDiff().spawnMult; },
       tierCap(){ return clamp(Modes.stage, 1, Defs.WEAPON_ORDER.length); },
       update(dt){
         Modes.progress=clamp(P.kills/Modes.killGoal,0,1);
@@ -569,8 +585,8 @@ const Modes={
     endless:{
       label:()=>'★ '+fmt(Math.floor(P?P.score:0)),
       init(){ P.hp=P.maxHp; },
-      diff(){ return 1+P.time*.03; },
-      spawnInt(){ return Math.max(.2, .85-P.time*.014); },
+      diff(){ return (1+P.time*.03)*curDiff().diffMult; },
+      spawnInt(){ return Math.max(.2, .85-P.time*.014)*curDiff().spawnMult; },
       tierCap(){ return clamp(1+Math.floor(P.time/40), 1, Defs.WEAPON_ORDER.length); },
       update(dt){ Modes.progress=(P.time%60)/60; },
       hudProg(){ return Math.floor(P.time)+'s · '+P.kills+' kills'; }
@@ -578,8 +594,8 @@ const Modes={
     army:{
       label:()=>'Army Builder',
       init(){ P.hp=1; },
-      diff(){ return 1+P.time*.026+P.troops*.025; },
-      spawnInt(){ return Math.max(.22, .82-P.time*.012); },
+      diff(){ return (1+P.time*.026+P.troops*.025)*curDiff().diffMult; },
+      spawnInt(){ return Math.max(.22, .82-P.time*.012)*curDiff().spawnMult; },
       tierCap(){ return clamp(1+Math.floor(P.time/38), 1, Defs.WEAPON_ORDER.length); },
       update(dt){ Modes.progress=(P.time%60)/60;
         if(Math.random()<dt*.14 && gates.length<2) Spawner.spawnGatePair(); },
@@ -588,8 +604,8 @@ const Modes={
     hero:{
       label:()=>'Hero Lv.'+P.hero.lvl,
       init(){ P.maxHp=80+25*Perks.active('vest'); P.hp=P.maxHp; P.troops=1; },
-      diff(){ return 1+P.time*.026+(P.hero.lvl-1)*.08; },
-      spawnInt(){ return Math.max(.22, 1.0-P.time*.012); },
+      diff(){ return (1+P.time*.026+(P.hero.lvl-1)*.08)*curDiff().diffMult; },
+      spawnInt(){ return Math.max(.22, 1.0-P.time*.012)*curDiff().spawnMult; },
       tierCap(){ return clamp(1+Math.floor((P.hero.lvl-1)/2), 1, Defs.WEAPON_ORDER.length); },
       update(dt){ Modes.progress=P.hero.xp/P.hero.xpNeed;
         if(P.hero.regen>0) P.hp=Math.min(P.maxHp,P.hp+P.hero.regen*dt); },
@@ -1298,6 +1314,14 @@ const UI={
     $('bestEndless').textContent=b.endless?'best '+fmt(b.endless):'';
     $('bestArmy').textContent=b.army?'best '+fmt(b.army):'';
     $('bestHero').textContent=b.hero?'best '+fmt(b.hero):'';
+    // difficulty chips
+    $('diffRow').innerHTML=Object.keys(Defs.DIFFICULTIES).map(k=>{
+      const d=Defs.DIFFICULTIES[k], on=Save.data.difficulty===k;
+      return '<button class="diffChip'+(on?' on':'')+'" data-diff="'+k+'" style="border-color:'+(on?d.color:'rgba(255,255,255,.15)')+'">'+d.ico+' '+d.label+'</button>';
+    }).join('');
+    document.querySelectorAll('#diffRow [data-diff]').forEach(b=>b.onclick=()=>{
+      Save.data.difficulty=b.dataset.diff; Save.save(); UI.refreshMenu();
+    });
   },
   buildArmory(){
     $('armoryCoins').textContent=fmt(Save.data.coins);
@@ -1370,7 +1394,7 @@ const Game={
     particles.length=floaters.length=beams.length=0;
     Modes.progress=0; Modes.bossSpawned=false;
     Modes.def.init();
-    this.pendingStage=null;
+    this.pendingStage=null; $('lvlCards').innerHTML='';
     Spawner.reset();
     Engine.setState('playing');
     UI.show(null);

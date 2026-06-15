@@ -12,12 +12,6 @@ furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
-The art assets in `atlas.png` and embedded as base64 in `real-war-shooter.html`
-are derived from the "Tiny Swords" asset pack by Pixel Frog
-(https://pixelfrog-assets.itch.io/tiny-swords) and are NOT covered by this
-license. They are used here under Pixel Frog's license terms, which permit
-personal and commercial use but not redistribution of raw pack assets.
-
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE

@@ -9,7 +9,6 @@
       ".firebase/**",
       "**/*.ps1",
       "**/node_modules/**",
-      "atlas.png",
       "README.md",
       "LICENSE",
       "tools/**"

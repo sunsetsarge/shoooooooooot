@@ -516,17 +516,21 @@ const CAM={
   topDownTopY(){ return Renderer.LH*0.08; }, // where z=zMax appears in top-down view
   project(lx,z){
     /* Pseudo-3D perspective projection ONLY in Bridge Carry mode.
-       All other modes use an orthographic top-down view. */
+       All other modes use a side-scrolling orthographic view. */
     if(Modes.current==='bridge'){
       const s=this.near/(this.near+Math.max(z,-this.near*.5));
       return { x:240+lx*s,
                y:this.playerY()-(this.playerY()-this.horizonY())*(1-s),
                s };
     }
-    /* Top-down orthographic: z maps linearly to y, lx maps 1-to-1 to x, scale=1. */
-    const t=clamp(z/this.zMax,0,1);
-    const py=this.playerY(), topY=this.topDownTopY();
-    return { x:240+lx, y:py-t*(py-topY), s:1 };
+    /* Side-scrolling orthographic: z → screen X, lx → screen Y.
+       Player squad (z≈0) anchored on the left; enemies (z≈zMax) on the right.
+       lx (lane offset ±ROAD.half) spreads units vertically around the centreline.
+       Scale 0.30 keeps lanes compact and fills 60% of the screen height. */
+    const marginL=64, W=480;
+    const sx = marginL + (z / this.zMax) * (W - marginL - 20);
+    const sy = Renderer.LH * 0.5 + lx * (Renderer.LH * 0.30 / ROAD.half);
+    return { x:sx, y:sy, s:1 };
   },
   fade(z){
     if(Modes.current!=='bridge') return 1; // no horizon fade-in in top-down
@@ -1092,7 +1096,9 @@ const Squad={
   },
   draw(g){
     const n=Math.min(Combat.shooterCount(),28);
-    const px=240+P.lx, py=CAM.playerY();
+    let px,py;
+    if(Modes.current==='bridge'){ px=240+P.lx; py=CAM.playerY(); }
+    else{ const sp=CAM.project(P.lx,0); px=sp.x; py=sp.y; }
     const wob=Math.sin(P.time*9)*1.4;
     const shadows=Settings.budget().shadows;
     for(let i=n-1;i>=0;i--){
@@ -1252,57 +1258,56 @@ const Draw={
     g.fillStyle=grad; g.fillRect(0,hy-4,480,farY+38-hy);
   },
   _bgTopDown(g,dt){
-    if(!this.clouds) this.initSky();
-    const LH=Renderer.LH, py=CAM.playerY(), topY=CAM.topDownTopY();
-    this.scroll=(this.scroll+this.roadSpd*dt)%70;
-    /* ── water / ground flanking the road (overhead view) ── */
-    const wg=g.createLinearGradient(0,0,0,LH);
-    wg.addColorStop(0,'#0d3f62'); wg.addColorStop(1,'#0a2a42');
-    g.fillStyle=wg; g.fillRect(0,0,480,LH);
-    /* ── road deck (rectangle — no perspective in top-down) ── */
-    const rdL=240-ROAD.half-14, rdW=(ROAD.half+14)*2;
-    g.fillStyle='#cfcabf'; g.fillRect(rdL,topY,rdW,LH-topY);
+    /* Side-scrolling battlefield background.
+       Road runs left→right matching the z→X projection.
+       lx scale 0.30 matches CAM.project(), so rail positions line up with entities. */
+    const LH=Renderer.LH, W=480;
+    const lScale = LH * 0.30 / ROAD.half; // must match CAM.project() scale
+    const cy = LH * 0.5;
+    const roadHH = ROAD.half * lScale + 14; // half-height incl. shoulder
+    const roadTop = cy - roadHH, roadBot = cy + roadHH;
+    this.scroll = (this.scroll + this.roadSpd * dt) % 60;
+    /* ── grass flanks above and below the road ── */
+    const gg=g.createLinearGradient(0,0,0,LH);
+    gg.addColorStop(0,'#1a4a0a'); gg.addColorStop(.4,'#2a6614');
+    gg.addColorStop(.6,'#2a6614'); gg.addColorStop(1,'#1a4a0a');
+    g.fillStyle=gg; g.fillRect(0,0,W,LH);
+    /* ── road deck (horizontal band) ── */
+    g.fillStyle='#cfcabf'; g.fillRect(0,roadTop,W,roadBot-roadTop);
     /* ── shoulder strips ── */
     g.strokeStyle='#b3aea3'; g.lineWidth=5;
-    for(const sd of[-1,1]){
-      g.beginPath(); g.moveTo(240+sd*ROAD.half*1.04,topY);
-      g.lineTo(240+sd*ROAD.half*1.04,LH); g.stroke();
-    }
+    g.beginPath(); g.moveTo(0,roadTop); g.lineTo(W,roadTop); g.stroke();
+    g.beginPath(); g.moveTo(0,roadBot); g.lineTo(W,roadBot); g.stroke();
     /* ── guard rails ── */
     g.strokeStyle='#a03434'; g.lineWidth=4;
-    for(const sd of[-1,1]){
-      g.beginPath(); g.moveTo(240+sd*(ROAD.half+14),topY);
-      g.lineTo(240+sd*(ROAD.half+14),LH); g.stroke();
-    }
-    /* ── guard-rail posts (scrolling; reuse CAM.project for y position) ── */
+    g.beginPath(); g.moveTo(0,roadTop-8); g.lineTo(W,roadTop-8); g.stroke();
+    g.beginPath(); g.moveTo(0,roadBot+8); g.lineTo(W,roadBot+8); g.stroke();
+    /* ── guard-rail posts (scroll left = enemies approaching from right) ── */
     g.fillStyle='#7e2a2a';
-    for(let z=70-this.scroll;z<CAM.zMax;z+=70){
-      const p=CAM.project(0,z);
-      for(const sd of[-1,1]) g.fillRect(240+sd*(ROAD.half+14)-2,p.y-6,4,6);
+    for(let x=W-this.scroll%60;x>=-4;x-=60){
+      g.fillRect(x-2,roadTop-14,4,14);
+      g.fillRect(x-2,roadBot,4,14);
     }
-    /* ── center dashes (scrolling toward player) ── */
+    /* ── centre dashes ── */
     g.fillStyle='rgba(0,0,0,.16)';
-    for(let z=70-this.scroll;z<CAM.zMax;z+=70){
-      const p1=CAM.project(0,z), p2=CAM.project(0,Math.min(z+30,CAM.zMax));
-      g.fillRect(240-3.4,p2.y,6.8,Math.max(1,p1.y-p2.y));
+    for(let x=W-this.scroll%60;x>=-30;x-=60){
+      g.fillRect(x-15,cy-3,30,6);
     }
     /* ── deck seams ── */
     if(Settings.data.glow){
       g.strokeStyle='rgba(0,0,0,.06)'; g.lineWidth=1.5;
-      for(let z=35-this.scroll%35;z<CAM.zMax;z+=140){
-        const p=CAM.project(0,z);
-        g.beginPath(); g.moveTo(rdL+5,p.y); g.lineTo(rdL+rdW-5,p.y); g.stroke();
+      for(let x=W-this.scroll%60;x>=-5;x-=60){
+        g.beginPath(); g.moveTo(x,roadTop+5); g.lineTo(x,roadBot-5); g.stroke();
       }
     }
-    /* ── lane dividers (top-down: straight vertical lines) ── */
+    /* ── lane dividers: horizontal dashes (use CAM.project for y, matches entities) ── */
     if(Modes.laneCount && Modes.laneCount()>1){
       const n=Modes.laneCount();
-      g.strokeStyle='rgba(255,210,80,.55)'; g.lineWidth=3;
+      g.strokeStyle='rgba(255,210,80,.55)'; g.lineWidth=3; g.setLineDash([16,12]);
       for(let i=1;i<n;i++){
-        const dx=-ROAD.half+ROAD.half*2*(i/n);
-        const p0=CAM.project(dx,12), pF=CAM.project(dx,CAM.zMax);
-        g.setLineDash([16,12]);
-        g.beginPath(); g.moveTo(p0.x,p0.y); g.lineTo(pF.x,pF.y); g.stroke();
+        const lx=-ROAD.half+ROAD.half*2*(i/n);
+        const y=CAM.project(lx,0).y; // lx→y via projection; z=0 for pure y lookup
+        g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke();
       }
       g.setLineDash([]);
     }

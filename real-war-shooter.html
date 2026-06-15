@@ -45,7 +45,7 @@
   #hud{ position:fixed; inset:0; pointer-events:none; display:none; color:#fff; z-index:5; }
   #hudTop{ display:flex; align-items:center; gap:8px; padding:max(8px, env(safe-area-inset-top)) 10px 0 10px; }
   .hbtn{ pointer-events:auto; background:var(--blue); border:none; border-radius:10px;
-         color:#fff; font-size:18px; font-weight:800; width:44px; height:40px;
+         color:#fff; font-size:18px; font-weight:800; width:44px; height:44px;
          box-shadow:0 3px 0 #1d7fc0; cursor:pointer; }
   #progWrap{ flex:1; background:rgba(0,0,0,.45); border-radius:10px; height:26px; position:relative; overflow:hidden; }
   #progFill{ position:absolute; inset:0; width:0%; background:linear-gradient(90deg,#37c0ff,#7be0ff); transition:width .3s; }
@@ -107,8 +107,8 @@
   .statgrid{ display:grid; grid-template-columns:1fr 1fr; gap:6px 18px; font-size:14px; margin:14px 0;
              background:rgba(0,0,0,.3); border-radius:12px; padding:14px 18px; }
   .statgrid b{ color:var(--gold); }
-  .cards{ display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
-  .card{ pointer-events:auto; width:108px; min-height:140px;
+  .cards{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center; max-width:100%; }
+  .card{ pointer-events:auto; width:min(108px, calc((100% - 24px)/3)); min-height:140px; flex:0 0 auto;
          background:linear-gradient(#16344a,#0e2233); border:2px solid #3d6f99; border-radius:14px;
          padding:10px 8px; text-align:center; cursor:pointer; transition:transform .12s; }
   .card:hover{ transform:scale(1.06); border-color:var(--gold); }
@@ -121,10 +121,30 @@
           z-index:50; display:none; font-size:15px; text-align:center; }
   .coinsBig{ font-size:18px; font-weight:900; color:var(--gold); margin:6px 0 14px; }
   ::-webkit-scrollbar{ width:6px } ::-webkit-scrollbar-thumb{ background:#2a4a63; border-radius:3px }
+  /* ---- Landscape overlay (mobile portrait-only game) ---- */
+  #rotateMsg{ position:fixed; inset:0; display:none; z-index:9999;
+              background:radial-gradient(ellipse at 50% 30%, #15364e, #07131d);
+              flex-direction:column; align-items:center; justify-content:center;
+              color:#fff; padding:20px; text-align:center; font-weight:800; }
+  #rotateMsg .icon{ font-size:64px; animation:rotateHint 1.6s ease-in-out infinite; }
+  @keyframes rotateHint{ 0%,100%{transform:rotate(-30deg);} 50%{transform:rotate(60deg);} }
+  #rotateMsg .t1{ font-size:22px; margin-top:18px; color:var(--blue); letter-spacing:1px; }
+  #rotateMsg .t2{ font-size:13px; margin-top:8px; opacity:.8; max-width:340px; line-height:1.45; }
+  @media (orientation:landscape) and (max-height:500px){
+    #rotateMsg{ display:flex; }
+    #hud, .screen{ visibility:hidden; }
+  }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+
+<!-- Rotate-device overlay (shown only in landscape on short screens) -->
+<div id="rotateMsg">
+  <div class="icon">ðŸ“±</div>
+  <div class="t1">ROTATE YOUR DEVICE</div>
+  <div class="t2">REAL WAR is played in portrait orientation.<br>Turn your phone vertical to start the war.</div>
+</div>
 
 <!-- ════════ HUD ════════ -->
 <div id="hud">
@@ -472,16 +492,34 @@ const CAM={
   },
   fade(z){ return clamp((this.zMax-z)/130,0,1); } // entities fade in over the horizon
 };
-/* ═══════════════════════════ INPUT ═══════════════════════════ */
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• INPUT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   Touch/mouse uses RELATIVE drag: the squad moves by the same amount the
+   finger moved (NOT to the finger's absolute position). That way the
+   finger can rest anywhere on screen â€” no thumb-blocks-the-action problem.
+   `x` is exposed as a "desired squad screen X" so existing movement code
+   (`tx = Input.x - 240`) is unchanged.                                   */
 const Input={
-  down:false, x:240, keys:{},
+  down:false, x:240, keys:{}, _startX:0, _startLx:0,
   init(){
     const cv=Renderer.cv;
     const toLX=e=>((e.clientX)*(Renderer.cv.width/Math.max(innerWidth,1)))/Renderer.scale;
-    cv.addEventListener('pointerdown',e=>{ Audio2.ensure(); this.down=true; this.x=toLX(e); });
-    cv.addEventListener('pointermove',e=>{ if(this.down) this.x=toLX(e); });
-    addEventListener('pointerup',()=>this.down=false);
-    addEventListener('pointercancel',()=>this.down=false);
+    cv.addEventListener('pointerdown',e=>{
+      Audio2.ensure();
+      this.down=true;
+      this._startX=toLX(e);
+      this._startLx=(typeof P!=='undefined'&&P)?P.lx:0;
+      this.x=240+this._startLx; // squad stays put on initial touch
+      try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+    });
+    cv.addEventListener('pointermove',e=>{
+      if(!this.down) return;
+      const dx=toLX(e)-this._startX;
+      this.x=240+this._startLx+dx;
+    });
+    const release=()=>{ this.down=false; };
+    addEventListener('pointerup',release);
+    addEventListener('pointercancel',release);
+    addEventListener('blur',release);
     addEventListener('keydown',e=>{ this.keys[e.key]=true;
       if(e.key==='Escape'||e.key==='p') Engine.togglePause(); });
     addEventListener('keyup',e=>this.keys[e.key]=false);

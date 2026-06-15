@@ -179,6 +179,7 @@
   <button class="btn" data-mode="endless">♾️ Endless Mode <small class="modeBest" id="bestEndless"></small></button>
   <button class="btn" data-mode="army">🪖 Army Builder <small class="modeBest" id="bestArmy"></small></button>
   <button class="btn" data-mode="hero">🦸 Hero Mode <small class="modeBest" id="bestHero"></small></button>
+  <button class="btn" data-mode="bridge">🌉 Bridge Carry <small class="modeBest" id="bestBridge"></small></button>
   <button class="btn gold" id="btnArmory">🛡️ Armory — Upgrades</button>
   <button class="btn gray" id="btnSettings">⚙️ Settings</button>
 </div>
@@ -266,7 +267,7 @@ function toast(msg,ms=1400){
 const Save={
   KEY:'realwar_save_v1',
   data:{ coins:0, perks:{}, perkOn:{}, mults:{}, multOn:{}, stageReached:1,
-         best:{stage:0,endless:0,army:0,hero:0}, settings:null, seenHint:false, difficulty:'normal' },
+         best:{stage:0,endless:0,army:0,hero:0,bridge:0}, settings:null, seenHint:false, difficulty:'normal' },
   load(){
     try{ const raw=localStorage.getItem(this.KEY);
          if(raw) Object.assign(this.data, JSON.parse(raw)); }catch(e){}
@@ -403,10 +404,13 @@ Defs.ENEMIES={
   runner:{hp:16,  spd:108, r:11, pts:15,  dmg:7,  coin:.15, color:'#e2622a', color2:'#8a3812'},
   brute: {hp:150, spd:35,  r:19, pts:35,  dmg:20, coin:.5,  color:'#8a2bb0', color2:'#4d1264'},
   husk:  {hp:65,  spd:50,  r:14, pts:20,  dmg:12, coin:.25, color:'#3f7d3a', color2:'#1f4a1c'},
-  boss:  {hp:3400,spd:13,  r:46, pts:500, dmg:45, coin:30,  color:'#d8d4c8', color2:'#6b6457', boss:true}
+  boss:  {hp:3400,spd:13,  r:46, pts:500, dmg:45, coin:30,  color:'#d8d4c8', color2:'#6b6457', boss:true},
+  archer:{hp:55,  spd:0,   r:13, pts:18,  dmg:7,  coin:.35, color:'#4f7a3a', color2:'#2b4520', archer:true}
 };
 
 Defs.CRATES=[
+  {kind:'bridgeHp', w:5, ico:'🌉'},
+  {kind:'armor',    w:4, ico:'🛡️'},
   {kind:'coins',  w:22, ico:'🪙'}, {kind:'weapon', w:14, ico:'🔫'},
   {kind:'power',  w:10, ico:'💪'}, {kind:'rapid',  w:10, ico:'⏩'},
   {kind:'spread', w:9,  ico:'🔱'}, {kind:'fire',   w:6,  ico:'🔥'},
@@ -544,7 +548,7 @@ const Input={
 
 /* ═══════════════════════════ WORLD STATE ═══════════════════════════ */
 let P=null;
-let enemies=[], bullets=[], crates=[], gates=[], blockers=[], particles=[], floaters=[], beams=[];
+let enemies=[], bullets=[], crates=[], gates=[], blockers=[], particles=[], floaters=[], beams=[], arrows=[];
 
 function newPlayer(mode){
   const arsenal=Perks.active('arsenal');
@@ -566,6 +570,24 @@ function newPlayer(mode){
 /* ═══════════════════════════ MODES ═══════════════════════════ */
 const Modes={
   current:null, stage:1, bossSpawned:false, progress:0, killGoal:0,
+  // Lane Lock: even-numbered stages (and Bridge mode) use 3 hard lanes
+  laneCount(){
+    if(this.current==='bridge') return 3;
+    if(this.current==='stage' && this.stage%2===0) return 3;
+    return 1;
+  },
+  laneX(i){ // logical lateral X for lane i (0..laneCount-1)
+    const n=this.laneCount();
+    if(n<=1) return 0;
+    return -ROAD.half + ROAD.half*2*((i+.5)/n);
+  },
+  snapLane(lx){
+    const n=this.laneCount();
+    if(n<=1) return lx;
+    let best=0, bd=Infinity;
+    for(let i=0;i<n;i++){ const d=Math.abs(lx-this.laneX(i)); if(d<bd){bd=d;best=i;} }
+    return this.laneX(best);
+  },
   defs:{
     stage:{
       label:s=>'Stage '+Modes.stage,
@@ -610,6 +632,23 @@ const Modes={
       update(dt){ Modes.progress=P.hero.xp/P.hero.xpNeed;
         if(P.hero.regen>0) P.hp=Math.min(P.maxHp,P.hp+P.hero.regen*dt); },
       hudProg(){ return 'Lv.'+P.hero.lvl+' · ★ '+fmt(Math.floor(P.score)); }
+    },
+    bridge:{
+      label:()=>'Bridge Carry',
+      init(){
+        P.maxHp=1; P.hp=1;
+        P.troops=Math.max(2,4+curDiff().troopBonus);
+        P.bridgeHp=Math.round((200+20*Perks.active('vest'))*curDiff().hpStart);
+        P.bridgeHpMax=P.bridgeHp;
+        P.armor=0;
+      },
+      diff(){ return (1+P.time*.028)*curDiff().diffMult; },
+      spawnInt(){ return Math.max(.45, 1.3-P.time*.012)*curDiff().spawnMult; },
+      tierCap(){ return clamp(1+Math.floor(P.time/45), 1, Defs.WEAPON_ORDER.length); },
+      update(dt){
+        Modes.progress=clamp(1-P.bridgeHp/P.bridgeHpMax,0,1);
+      },
+      hudProg(){ return '🌉 '+Math.ceil(P.bridgeHp)+'/'+P.bridgeHpMax+' · 🪖 '+P.troops; }
     }
   },
   get def(){ return this.defs[this.current]; }
@@ -638,6 +677,19 @@ const Spawner={
     }
   },
   spawnWave(){
+    if(Modes.current==='bridge'){
+      const d=Modes.def.diff();
+      const archerOdds=Math.min(.7,.35+d*.08);
+      if(Math.random()<archerOdds){
+        const x=rand(-ROAD.half+20,ROAD.half-20);
+        this.spawnEnemy('archer', x, CAM.zMax-20, d);
+      }else{
+        // some ground enemies still attack the carriers
+        const kind=Math.random()<.6?'grunt':'runner';
+        this.spawnEnemy(kind, rand(-ROAD.half+20,ROAD.half-20), CAM.zMax-15, d);
+      }
+      return;
+    }
     const d=Modes.def.diff();
     const table=[{w:50,k:'grunt'},{w:20,k:'runner'},{w:d>1.4?15:5,k:'brute'},{w:d>1.15?18:7,k:'husk'}];
     const kind=weightedPick(table).k;
@@ -647,10 +699,11 @@ const Spawner={
       this.spawnEnemy(kind, clamp(blx+rand(-30,30),-ROAD.half+16,ROAD.half-16), CAM.zMax-15-i*30, d);
   },
   spawnEnemy(kind,lx,z,d){
+    if(Modes.laneCount()>1) lx=Modes.snapLane(lx);
     const t=Defs.ENEMIES[kind];
     enemies.push({kind, lx, z, r:t.r, hp:t.hp*d, maxHp:t.hp*d,
       spd:t.spd*(1+(d-1)*.18)*rand(.9,1.1), wob:rand(0,6.28),
-      burn:0,burnT:0, pois:0,poisT:0, flash:0, boss:!!t.boss});
+      burn:0,burnT:0, pois:0,poisT:0, flash:0, boss:!!t.boss, archer:!!t.archer});
   },
   spawnBoss(){
     const d=Modes.def.diff();
@@ -924,8 +977,17 @@ const Crates={
           toast('⭐ '+u.name+'<br><small>'+u.desc+'</small>',2000); }
         else Combat.earnCoins(12,c.lx,c.z);
         break;
+      case 'bridgeHp':
+        if(P.mode==='bridge'){ P.bridgeHp=Math.min(P.bridgeHpMax,P.bridgeHp+30); toast('🌉 +30 Bridge HP'); }
+        else Combat.earnCoins(8,c.lx,c.z);
+        break;
+      case 'armor':
+        if(P.mode==='bridge'){ P.armor=Math.min(5,P.armor+1); toast('🛡️ +1 Armor'); }
+        else Combat.earnCoins(8,c.lx,c.z);
+        break;
       case 'heal':
         if(P.mode==='army'){ P.troops=Math.min(99,P.troops+2); toast('🪖 +2 Troops'); }
+        else if(P.mode==='bridge'){ P.troops=Math.min(20,P.troops+1); P.bridgeHp=Math.min(P.bridgeHpMax,P.bridgeHp+15); toast('🪖 +1 Carrier · 🌉 +15'); }
         else { P.hp=Math.min(P.maxHp,P.hp+P.maxHp*.35); toast('❤️ Healed'); }
         break;
       case 'nuke':
@@ -1126,6 +1188,19 @@ const Draw={
         g.beginPath(); g.moveTo(laneX(-1.02,p.y),p.y); g.lineTo(laneX(1.02,p.y),p.y); g.stroke();
       }
     }
+    /* ── lane dividers (when laneCount > 1) ── */
+    if(Modes.laneCount && Modes.laneCount()>1){
+      const n=Modes.laneCount();
+      g.strokeStyle='rgba(255,210,80,.55)'; g.lineWidth=3;
+      for(let i=1;i<n;i++){
+        const dx=-ROAD.half + ROAD.half*2*(i/n);
+        // draw a dashed line from player plane to far end
+        const p0=CAM.project(dx,12), pF=CAM.project(dx,CAM.zMax);
+        g.setLineDash([16*p0.s,12*p0.s]);
+        g.beginPath(); g.moveTo(p0.x,p0.y); g.lineTo(pF.x,pF.y); g.stroke();
+      }
+      g.setLineDash([]);
+    }
     /* ── horizon haze: covers the gap between sea horizon and road end ── */
     grad=g.createLinearGradient(0,hy-4,0,farY+34);
     grad.addColorStop(0,'rgba(223,242,251,.97)');
@@ -1248,6 +1323,40 @@ const Draw={
     g.fillText((pos?'+':'')+gt.val, mid.x, mid.y+fs*.35);
     g.globalAlpha=1;
   },
+  arrow(g,a){
+    const p=CAM.project(a.lx,a.z), s=p.s;
+    const a2=Math.atan2(a.vz,0); // arrow points along z (toward player)
+    g.save(); g.translate(p.x,p.y);
+    g.strokeStyle='#3a2010'; g.lineWidth=Math.max(1.4,2.4*s); g.lineCap='round';
+    g.beginPath(); g.moveTo(0,-10*s); g.lineTo(0,12*s); g.stroke();
+    g.fillStyle='#9d6a3a';
+    g.beginPath(); g.moveTo(0,14*s); g.lineTo(-3.5*s,8*s); g.lineTo(3.5*s,8*s); g.closePath(); g.fill();
+    g.restore();
+  },
+  carriedBridge(g){
+    if(!P || P.bridgeHpMax<=0) return;
+    const w=86, h=18;
+    const px=240+P.lx, py=CAM.playerY()-44;
+    const ratio=P.bridgeHp/P.bridgeHpMax;
+    // bridge planks
+    g.save(); g.translate(px,py);
+    g.shadowColor='rgba(0,0,0,.4)'; g.shadowBlur=8; g.shadowOffsetY=4;
+    g.fillStyle=ratio>.5?'#9c6a35':ratio>.25?'#7a4a18':'#5a3010';
+    g.fillRect(-w/2,-h/2,w,h);
+    g.shadowBlur=0; g.shadowOffsetY=0;
+    g.strokeStyle='rgba(40,20,10,.55)'; g.lineWidth=1.6;
+    for(let i=-w/2+10;i<w/2;i+=14){ g.beginPath(); g.moveTo(i,-h/2); g.lineTo(i,h/2); g.stroke(); }
+    // metal banding for armor
+    if(P.armor>0){ g.fillStyle='#a8b0b8';
+      g.fillRect(-w/2,-h/2-2,w,3); g.fillRect(-w/2,h/2-1,w,3); }
+    g.strokeStyle='#3a2010'; g.lineWidth=2; g.strokeRect(-w/2,-h/2,w,h);
+    g.restore();
+    // bridge HP bar above
+    const bx=240+P.lx-40, by=py-h/2-12;
+    g.fillStyle='rgba(0,0,0,.55)'; g.fillRect(bx,by,80,5);
+    g.fillStyle=ratio>.5?'#5dde6a':ratio>.25?'#ffc83d':'#ff5252';
+    g.fillRect(bx,by,80*Math.max(0,ratio),5);
+  },
   bullet(g,b){
     const p=CAM.project(b.lx,b.z), s=p.s;
     if(b.flame){
@@ -1292,6 +1401,10 @@ const HUD={
       $('hpFill').style.width='100%';
       $('hpFill').style.background='linear-gradient(90deg,#2f9dff,#7ad1ff)';
       $('hpText').textContent='🪖 TROOPS: '+P.troops;
+    }else if(P.mode==='bridge'){
+      $('hpFill').style.width=clamp(P.bridgeHp/P.bridgeHpMax*100,0,100)+'%';
+      $('hpFill').style.background='linear-gradient(90deg,#9c6a35,#d4a060)';
+      $('hpText').textContent='🌉 '+Math.ceil(P.bridgeHp)+' / '+P.bridgeHpMax+' · 🪖 '+P.troops;
     }else{
       $('hpFill').style.width=clamp(P.hp/P.maxHp*100,0,100)+'%';
       $('hpFill').style.background='';
@@ -1313,7 +1426,7 @@ const UI={
     $('bestStage').textContent=Save.data.stageReached>1?'reached stage '+Save.data.stageReached+' · best '+fmt(b.stage):'';
     $('bestEndless').textContent=b.endless?'best '+fmt(b.endless):'';
     $('bestArmy').textContent=b.army?'best '+fmt(b.army):'';
-    $('bestHero').textContent=b.hero?'best '+fmt(b.hero):'';
+    $('bestHero').textContent=b.hero?'best '+fmt(b.hero):''; $('bestBridge').textContent=b.bridge?'best '+fmt(b.bridge):'';
     // difficulty chips
     $('diffRow').innerHTML=Object.keys(Defs.DIFFICULTIES).map(k=>{
       const d=Defs.DIFFICULTIES[k], on=Save.data.difficulty===k;
@@ -1390,7 +1503,7 @@ const Game={
     Modes.current=mode;
     this.ending=false;
     P=newPlayer(mode);
-    enemies.length=bullets.length=crates.length=gates.length=blockers.length=0;
+    enemies.length=bullets.length=crates.length=gates.length=blockers.length=arrows.length=0;
     particles.length=floaters.length=beams.length=0;
     Modes.progress=0; Modes.bossSpawned=false;
     Modes.def.init();
@@ -1436,9 +1549,14 @@ const Game={
     UI.show('scrOver');
   },
   hurt(dmg,troopLoss=1){
-    if(P.shield>0||this.ending) return; // invulnerable during the victory lap
+    if(P.shield>0||this.ending) return;
     Audio2.play('hurt'); Renderer.shake(4);
     if(P.mode==='army'){
+      P.troops-=troopLoss;
+      FX.textW(P.lx,30,'-'+troopLoss+' 🪖','#ff6060',16);
+      if(P.troops<=0){ P.troops=0; this.end(false); }
+    }else if(P.mode==='bridge'){
+      // Ground hits in bridge mode reduce carrier count (like army)
       P.troops-=troopLoss;
       FX.textW(P.lx,30,'-'+troopLoss+' 🪖','#ff6060',16);
       if(P.troops<=0){ P.troops=0; this.end(false); }
@@ -1475,8 +1593,14 @@ const Game={
     const pad=14+Math.sqrt(Math.min(Combat.shooterCount(),28))*7;
     tx=clamp(tx,-ROAD.half+pad,ROAD.half-pad);
     P.lx+=clamp(tx-P.lx,-P.speed*dt,P.speed*dt);
+    // Lane lock: pull squad to nearest lane when not actively dragging
+    if(Modes.laneCount()>1 && !Input.down){
+      const target=Modes.snapLane(P.lx);
+      P.lx+=(target-P.lx)*Math.min(1,dt*8);
+    }
 
     if(!this.ending){ Modes.def.update(dt); Spawner.update(dt); }
+    if(Modes.current==='bridge') this.updateArrows(dt);
     Combat.updateFiring(dt);
     this.updateBullets(dt);
     this.updateEnemies(dt);
@@ -1550,11 +1674,23 @@ const Game={
     for(let i=enemies.length-1;i>=0;i--){
       const e=enemies[i];
       e.flash=Math.max(0,e.flash-dt);
+      // archers: fire arrows toward the squad on a cooldown
+      if(e.archer){
+        if(e.fireCd===undefined) e.fireCd=rand(.6,1.4); e.fireCd-=dt;
+        if(e.fireCd<=0 && Modes.current==='bridge'){
+          e.fireCd=rand(1.6,3.2);
+          arrows.push({lx:e.lx,z:e.z, tlx:P.lx+rand(-30,30), vz:-260, life:3.5, dmg:Defs.ENEMIES.archer.dmg});
+          Audio2.play('shot');
+        }
+      }
       e.z-=e.spd*dt;
       e.lx+=Math.sin(e.wob+P.time*2)*14*dt;
-      if(!e.boss){ // hold lanes while far, converge on the squad when close
+      if(!e.boss && Modes.laneCount()<=1){ // hold lanes while far, converge on the squad when close
         const prox=1-e.z/CAM.zMax;
         e.lx+=(P.lx-e.lx)*(1.2*prox*prox)*dt;
+      } else if(!e.boss){ // laned: drift back to nearest lane center if jostled
+        const target=Modes.snapLane(e.lx);
+        e.lx+=(target-e.lx)*Math.min(1,dt*4);
       }
       e.lx=clamp(e.lx,-ROAD.half+e.r,ROAD.half-e.r);
       if(e.burnT>0){ e.burnT-=dt; e.hp-=e.burn*dt; P.dpsWindow+=e.burn*dt;
@@ -1563,16 +1699,29 @@ const Game={
       if(e.poisT>0){ e.poisT-=dt; e.hp-=e.pois*dt; P.dpsWindow+=e.pois*dt;
         if(Math.random()<dt*5) FX.burstW(e.lx,e.z,'#62d63e',1,40,.4,3);
         if(e.hp<=0){ Combat.killEnemy(e); continue; } }
-      // reached the squad line
+      // reached the squad line — only hurt if enemy is actually touching a soldier
       if(e.z<=e.r+8){
         const t=Defs.ENEMIES[e.kind];
-        if(e.boss){ Game.hurt(t.dmg,3); e.z+=130; }
-        else{
-          Game.hurt(t.dmg*Math.min(2.2,d*.6+0.8));
-          enemies.splice(i,1);
-          FX.burstW(e.lx,20,t.color,6,110,.4,3);
+        let hit=e.boss; // boss always crashes the line
+        if(!hit){
+          const n=Math.min(Combat.shooterCount(),28);
+          for(let s=0;s<n;s++){
+            const o=Squad.offset(s,n);
+            if(Math.abs(P.lx+o.x-e.lx) < e.r+10){ hit=true; break; }
+          }
         }
-        if(Engine.state!=='playing') return;
+        if(hit){
+          if(e.boss){ Game.hurt(t.dmg,3); e.z+=130; }
+          else{
+            Game.hurt(t.dmg*Math.min(2.2,d*.6+0.8));
+            enemies.splice(i,1);
+            FX.burstW(e.lx,20,t.color,6,110,.4,3);
+          }
+          if(Engine.state!=='playing') return;
+        } else if(!e.boss && e.z<-30){
+          // walked past harmlessly
+          enemies.splice(i,1);
+        }
       }
     }
   },
@@ -1612,6 +1761,37 @@ const Game={
       if(b.z<-40) blockers.splice(i,1);
     }
   },
+  updateArrows(dt){
+    // Arrows are enemy projectiles in Bridge Carry mode.
+    // They damage the bridge first (mitigated by armor); when bridge is at 0,
+    // they hit the squad directly and reduce troop count.
+    for(let i=arrows.length-1;i>=0;i--){
+      const a=arrows[i];
+      a.z+=a.vz*dt;
+      a.life-=dt;
+      // approach impact: when arrow z < 60 it's about to hit
+      if(a.z<=40){
+        const mitigated=a.dmg*(1-Math.min(.7,P.armor*.15));
+        if(P.bridgeHp>0){
+          P.bridgeHp-=mitigated;
+          FX.burstW(a.lx, Math.max(a.z,30),'#a06a32',6,90,.35,3);
+          if(P.bridgeHp<=0){
+            P.bridgeHp=0;
+            Audio2.play('crash'); Renderer.shake(5);
+            FX.burstW(0,30,'#a06a32',24,200,.6,5);
+            // Bridge collapses — game over in Bridge mode
+            Game.end(false); return;
+          }
+        }else{
+          // No bridge left — hit the carriers
+          Game.hurt(mitigated, 1);
+          if(Engine.state!=='playing') return;
+        }
+        arrows.splice(i,1); continue;
+      }
+      if(a.life<=0) arrows.splice(i,1);
+    }
+  },
   updateGates(dt){
     for(let i=gates.length-1;i>=0;i--){
       const gt=gates[i];
@@ -1644,7 +1824,9 @@ const Game={
     drawList.sort((a,b)=>b.z-a.z);
     for(const d of drawList) d.f();
     Squad.draw(g);
+    for(const a of arrows) Draw.arrow(g,a);
     for(const b of bullets) Draw.bullet(g,b);
+    if(Modes.current==='bridge') Draw.carriedBridge(g);
     for(const bm of beams){
       const a=1-bm.t/bm.life;
       g.strokeStyle='rgba(160,230,255,'+a+')'; g.lineWidth=3;

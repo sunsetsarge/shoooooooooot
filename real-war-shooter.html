@@ -513,13 +513,25 @@ const CAM={
   near:430, zMax:780,
   horizonY(){ return Renderer.LH*0.17; },
   playerY(){ return Renderer.LH-165; },
+  topDownTopY(){ return Renderer.LH*0.08; }, // where z=zMax appears in top-down view
   project(lx,z){
-    const s=this.near/(this.near+Math.max(z,-this.near*.5));
-    return { x:240+lx*s,
-             y:this.playerY()-(this.playerY()-this.horizonY())*(1-s),
-             s };
+    /* Pseudo-3D perspective projection ONLY in Bridge Carry mode.
+       All other modes use an orthographic top-down view. */
+    if(Modes.current==='bridge'){
+      const s=this.near/(this.near+Math.max(z,-this.near*.5));
+      return { x:240+lx*s,
+               y:this.playerY()-(this.playerY()-this.horizonY())*(1-s),
+               s };
+    }
+    /* Top-down orthographic: z maps linearly to y, lx maps 1-to-1 to x, scale=1. */
+    const t=clamp(z/this.zMax,0,1);
+    const py=this.playerY(), topY=this.topDownTopY();
+    return { x:240+lx, y:py-t*(py-topY), s:1 };
   },
-  fade(z){ return clamp((this.zMax-z)/130,0,1); } // entities fade in over the horizon
+  fade(z){
+    if(Modes.current!=='bridge') return 1; // no horizon fade-in in top-down
+    return clamp((this.zMax-z)/130,0,1);
+  }
 };
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• INPUT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    Touch/mouse uses RELATIVE drag: the squad moves by the same amount the
@@ -1111,6 +1123,8 @@ const Draw={
     for(let i=0;i<26;i++) this.sparkles.push({x:rand(0,480),t:rand(0,3)});
   },
   background(g,dt){
+    /* Dispatch: Bridge Carry = pseudo-3D perspective road; all other modes = top-down. */
+    if(Modes.current!=='bridge'){ this._bgTopDown(g,dt); return; }
     if(!this.clouds) this.initSky();
     const LH=Renderer.LH, hy=CAM.horizonY(), py=CAM.playerY();
     this.scroll=(this.scroll+this.roadSpd*dt)%70;
@@ -1216,6 +1230,62 @@ const Draw={
     grad.addColorStop(.55,'rgba(223,242,251,.8)');
     grad.addColorStop(1,'rgba(223,242,251,0)');
     g.fillStyle=grad; g.fillRect(0,hy-4,480,farY+38-hy);
+  },
+  _bgTopDown(g,dt){
+    if(!this.clouds) this.initSky();
+    const LH=Renderer.LH, py=CAM.playerY(), topY=CAM.topDownTopY();
+    this.scroll=(this.scroll+this.roadSpd*dt)%70;
+    /* ── water / ground flanking the road (overhead view) ── */
+    const wg=g.createLinearGradient(0,0,0,LH);
+    wg.addColorStop(0,'#0d3f62'); wg.addColorStop(1,'#0a2a42');
+    g.fillStyle=wg; g.fillRect(0,0,480,LH);
+    /* ── road deck (rectangle — no perspective in top-down) ── */
+    const rdL=240-ROAD.half-14, rdW=(ROAD.half+14)*2;
+    g.fillStyle='#cfcabf'; g.fillRect(rdL,topY,rdW,LH-topY);
+    /* ── shoulder strips ── */
+    g.strokeStyle='#b3aea3'; g.lineWidth=5;
+    for(const sd of[-1,1]){
+      g.beginPath(); g.moveTo(240+sd*ROAD.half*1.04,topY);
+      g.lineTo(240+sd*ROAD.half*1.04,LH); g.stroke();
+    }
+    /* ── guard rails ── */
+    g.strokeStyle='#a03434'; g.lineWidth=4;
+    for(const sd of[-1,1]){
+      g.beginPath(); g.moveTo(240+sd*(ROAD.half+14),topY);
+      g.lineTo(240+sd*(ROAD.half+14),LH); g.stroke();
+    }
+    /* ── guard-rail posts (scrolling; reuse CAM.project for y position) ── */
+    g.fillStyle='#7e2a2a';
+    for(let z=70-this.scroll;z<CAM.zMax;z+=70){
+      const p=CAM.project(0,z);
+      for(const sd of[-1,1]) g.fillRect(240+sd*(ROAD.half+14)-2,p.y-6,4,6);
+    }
+    /* ── center dashes (scrolling toward player) ── */
+    g.fillStyle='rgba(0,0,0,.16)';
+    for(let z=70-this.scroll;z<CAM.zMax;z+=70){
+      const p1=CAM.project(0,z), p2=CAM.project(0,Math.min(z+30,CAM.zMax));
+      g.fillRect(240-3.4,p2.y,6.8,Math.max(1,p1.y-p2.y));
+    }
+    /* ── deck seams ── */
+    if(Settings.data.glow){
+      g.strokeStyle='rgba(0,0,0,.06)'; g.lineWidth=1.5;
+      for(let z=35-this.scroll%35;z<CAM.zMax;z+=140){
+        const p=CAM.project(0,z);
+        g.beginPath(); g.moveTo(rdL+5,p.y); g.lineTo(rdL+rdW-5,p.y); g.stroke();
+      }
+    }
+    /* ── lane dividers (top-down: straight vertical lines) ── */
+    if(Modes.laneCount && Modes.laneCount()>1){
+      const n=Modes.laneCount();
+      g.strokeStyle='rgba(255,210,80,.55)'; g.lineWidth=3;
+      for(let i=1;i<n;i++){
+        const dx=-ROAD.half+ROAD.half*2*(i/n);
+        const p0=CAM.project(dx,12), pF=CAM.project(dx,CAM.zMax);
+        g.setLineDash([16,12]);
+        g.beginPath(); g.moveTo(p0.x,p0.y); g.lineTo(pF.x,pF.y); g.stroke();
+      }
+      g.setLineDash([]);
+    }
   },
   shadow(g,p,w){
     if(!Settings.budget().shadows) return;

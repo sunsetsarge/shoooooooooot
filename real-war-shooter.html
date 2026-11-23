@@ -279,7 +279,10 @@ const Save={
          best:{stage:0,endless:0,army:0,hero:0,bridge:0}, settings:null, seenHint:false, difficulty:'normal' },
   load(){
     try{ const raw=localStorage.getItem(this.KEY);
-         if(raw) Object.assign(this.data, JSON.parse(raw)); }catch(e){}
+         if(raw){ const saved=JSON.parse(raw), defBest=this.data.best;
+           Object.assign(this.data, saved);
+           // older saves lack best-score keys added later (e.g. bridge): fill from defaults
+           this.data.best=Object.assign({}, defBest, saved.best); } }catch(e){}
   },
   save(){ try{ localStorage.setItem(this.KEY, JSON.stringify(this.data)); }catch(e){} }
 };

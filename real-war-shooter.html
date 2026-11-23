@@ -1577,10 +1577,10 @@ const UI={
 
 /* ═══════════════════════════ GAME (run lifecycle) ═══════════════════════════ */
 const Game={
-  pendingStage:null, ending:false, endingT:0, popT:0,
+  pendingStage:null, ending:false, ended:false, endingT:0, popT:0,
   start(mode){
     Modes.current=mode;
-    this.ending=false;
+    this.ending=false; this.ended=false;
     P=newPlayer(mode);
     enemies.length=bullets.length=crates.length=gates.length=blockers.length=arrows.length=0;
     particles.length=floaters.length=beams.length=0;
@@ -1608,6 +1608,10 @@ const Game={
     this.end(true);
   },
   end(victory,quiet){
+    // One end per run: a single update tick can reach here from several places
+    // (enemy hit, barrier, gate, arrow); only the first may bank coins / show the screen.
+    if(this.ended) return;
+    this.ended=true;
     const banked=Math.round(P.coins);
     Save.data.coins+=banked;
     const bestKey=Modes.current;
@@ -1628,7 +1632,7 @@ const Game={
     UI.show('scrOver');
   },
   hurt(dmg,troopLoss=1){
-    if(P.shield>0||this.ending) return;
+    if(P.shield>0||this.ending||this.ended) return;
     Audio2.play('hurt'); Renderer.shake(4);
     if(P.mode==='army'){
       P.troops-=troopLoss;

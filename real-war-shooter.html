@@ -560,10 +560,15 @@ const Input={
     const release=()=>{ this.down=false; };
     addEventListener('pointerup',release);
     addEventListener('pointercancel',release);
-    addEventListener('blur',release);
-    addEventListener('keydown',e=>{ this.keys[e.key]=true;
-      if(e.key==='Escape'||e.key==='p') Engine.togglePause(); });
-    addEventListener('keyup',e=>this.keys[e.key]=false);
+    // Losing focus means we will never see the matching keyup, so drop held keys too
+    const dropKeys=()=>{ this.keys={}; };
+    addEventListener('blur',()=>{ release(); dropKeys(); });
+    document.addEventListener('visibilitychange',()=>{ if(document.hidden) dropKeys(); });
+    // Normalise single characters so Shift/Caps Lock can't make keyup miss keydown ('a' vs 'A')
+    const norm=e=>(e.key&&e.key.length===1)?e.key.toLowerCase():e.key;
+    addEventListener('keydown',e=>{ const k=norm(e); if(!k) return; this.keys[k]=true;
+      if(k==='Escape'||k==='p') Engine.togglePause(); });
+    addEventListener('keyup',e=>{ const k=norm(e); if(k) this.keys[k]=false; });
   }
 };
 

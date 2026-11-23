@@ -646,7 +646,7 @@ const Modes={
     },
     hero:{
       label:()=>'Hero Lv.'+P.hero.lvl,
-      init(){ P.maxHp=80+25*Perks.active('vest'); P.hp=P.maxHp; P.troops=1; },
+      init(){ P.maxHp=Math.round((80+25*Perks.active('vest'))*curDiff().hpStart); P.hp=P.maxHp; P.troops=1; },
       diff(){ return (1+P.time*.026+(P.hero.lvl-1)*.08)*curDiff().diffMult; },
       spawnInt(){ return Math.max(.22, 1.0-P.time*.012)*curDiff().spawnMult; },
       tierCap(){ return clamp(1+Math.floor((P.hero.lvl-1)/2), 1, Defs.WEAPON_ORDER.length); },

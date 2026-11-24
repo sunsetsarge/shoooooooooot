@@ -1967,6 +1967,9 @@ const Engine={
   },
   init(){
     Renderer.init(); Settings.init(); Input.init(); UI.init(); UI.refreshMenu();
+    // the rotate-device overlay hides the HUD and screens: pause a live run behind it
+    matchMedia('(orientation:landscape) and (max-height:500px)').addEventListener('change',e=>{
+      if(e.matches&&this.state==='playing') this.togglePause(); });
     this.last=performance.now();
     requestAnimationFrame(ts=>this.loop(ts));
   }

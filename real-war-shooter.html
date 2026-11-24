@@ -567,7 +567,7 @@ const Input={
     // Normalise single characters so Shift/Caps Lock can't make keyup miss keydown ('a' vs 'A')
     const norm=e=>(e.key&&e.key.length===1)?e.key.toLowerCase():e.key;
     addEventListener('keydown',e=>{ const k=norm(e); if(!k) return; this.keys[k]=true;
-      if(k==='Escape'||k==='p') Engine.togglePause(); });
+      if(!e.repeat&&(k==='Escape'||k==='p')) Engine.togglePause(); });
     addEventListener('keyup',e=>{ const k=norm(e); if(k) this.keys[k]=false; });
   }
 };

@@ -414,7 +414,7 @@ Defs.ENEMIES={
   brute: {hp:150, spd:35,  r:19, pts:35,  dmg:20, coin:.5,  color:'#8a2bb0', color2:'#4d1264'},
   husk:  {hp:65,  spd:50,  r:14, pts:20,  dmg:12, coin:.25, color:'#3f7d3a', color2:'#1f4a1c'},
   boss:  {hp:3400,spd:13,  r:46, pts:500, dmg:45, coin:30,  color:'#d8d4c8', color2:'#6b6457', boss:true},
-  archer:{hp:55,  spd:0,   r:13, pts:18,  dmg:7,  coin:.35, color:'#4f7a3a', color2:'#2b4520', archer:true}
+  archer:{hp:55,  spd:0,   r:13, pts:18,  dmg:7,  coin:.35, color:'#4f7a3a', color2:'#2b4520', archer:true, stand:280}
 };
 
 Defs.CRATES=[
@@ -1762,7 +1762,10 @@ const Game={
           Audio2.play('shot');
         }
       }
-      e.z-=e.spd*dt;
+      if(e.archer){ // walk in to a firing position inside weapon reach, then hold (bullets die past z=zMax-40)
+        const st=Defs.ENEMIES.archer.stand;
+        if(e.z>st) e.z=Math.max(st,e.z-70*dt);
+      } else e.z-=e.spd*dt;
       e.lx+=Math.sin(e.wob+P.time*2)*14*dt;
       if(!e.boss && Modes.laneCount()<=1){ // hold lanes while far, converge on the squad when close
         const prox=1-e.z/CAM.zMax;
